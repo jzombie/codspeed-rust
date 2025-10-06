@@ -7,7 +7,10 @@ mod linux_impl {
 
     use super::ffi;
     use std::ffi::CString;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
+
+    static INSTRUMENTATION_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub struct InstrumentHooks(*mut ffi::InstrumentHooks);
 
@@ -21,6 +24,11 @@ mod linux_impl {
             if ptr.is_null() {
                 None
             } else {
+                // Query the C library once at initialization to know whether
+                // instrumentation is actually enabled. Cache that in an
+                // AtomicBool to avoid per-iteration FFI calls.
+                let enabled = unsafe { ffi::instrument_hooks_is_instrumented(ptr) };
+                INSTRUMENTATION_ENABLED.store(enabled, Ordering::Relaxed);
                 Some(InstrumentHooks(ptr))
             }
         }
@@ -41,7 +49,7 @@ mod linux_impl {
 
         #[inline(always)]
         pub fn is_instrumented(&self) -> bool {
-            unsafe { ffi::instrument_hooks_is_instrumented(self.0) }
+            INSTRUMENTATION_ENABLED.load(Ordering::Relaxed)
         }
 
         #[inline(always)]

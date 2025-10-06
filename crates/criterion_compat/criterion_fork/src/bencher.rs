@@ -96,7 +96,11 @@ impl<'a, M: Measurement> Bencher<'a, M> {
     {
         self.iterated = true;
 
-        let bench_start = InstrumentHooks::current_timestamp();
+        let bench_start = if InstrumentHooks::instance().is_instrumented() {
+            InstrumentHooks::current_timestamp()
+        } else {
+            0
+        };
         let time_start = Instant::now();
         let start = self.measurement.start();
         for _ in 0..self.iters {
@@ -104,7 +108,11 @@ impl<'a, M: Measurement> Bencher<'a, M> {
         }
         self.value = self.measurement.end(start);
         self.elapsed_time = time_start.elapsed();
-        let bench_end = InstrumentHooks::current_timestamp();
+        let bench_end = if InstrumentHooks::instance().is_instrumented() {
+            InstrumentHooks::current_timestamp()
+        } else {
+            0
+        };
         InstrumentHooks::instance().add_benchmark_timestamps(bench_start, bench_end);
     }
 
@@ -291,11 +299,19 @@ impl<'a, M: Measurement> Bencher<'a, M> {
             for _ in 0..self.iters {
                 let input = black_box(setup());
 
-                let bench_start = InstrumentHooks::current_timestamp();
+                let bench_start = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 let start = self.measurement.start();
                 let output = routine(input);
                 let end = self.measurement.end(start);
-                let bench_end = InstrumentHooks::current_timestamp();
+                let bench_end = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 InstrumentHooks::instance().add_benchmark_timestamps(bench_start, bench_end);
 
                 self.value = self.measurement.add(&self.value, &end);
@@ -311,11 +327,19 @@ impl<'a, M: Measurement> Bencher<'a, M> {
                 let inputs = black_box((0..batch_size).map(|_| setup()).collect::<Vec<_>>());
                 let mut outputs = Vec::with_capacity(batch_size as usize);
 
-                let bench_start = InstrumentHooks::current_timestamp();
+                let bench_start = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 let start = self.measurement.start();
                 outputs.extend(inputs.into_iter().map(&mut routine));
                 let end = self.measurement.end(start);
-                let bench_end = InstrumentHooks::current_timestamp();
+                let bench_end = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 InstrumentHooks::instance().add_benchmark_timestamps(bench_start, bench_end);
 
                 self.value = self.measurement.add(&self.value, &end);
@@ -403,11 +427,19 @@ impl<'a, M: Measurement> Bencher<'a, M> {
             for _ in 0..self.iters {
                 let mut input = black_box(setup());
 
-                let bench_start = InstrumentHooks::current_timestamp();
+                let bench_start = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 let start = self.measurement.start();
                 let output = routine(&mut input);
                 let end = self.measurement.end(start);
-                let bench_end = InstrumentHooks::current_timestamp();
+                let bench_end = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 InstrumentHooks::instance().add_benchmark_timestamps(bench_start, bench_end);
 
                 self.value = self.measurement.add(&self.value, &end);
@@ -424,11 +456,19 @@ impl<'a, M: Measurement> Bencher<'a, M> {
                 let mut inputs = black_box((0..batch_size).map(|_| setup()).collect::<Vec<_>>());
                 let mut outputs = Vec::with_capacity(batch_size as usize);
 
-                let bench_start = InstrumentHooks::current_timestamp();
+                let bench_start = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 let start = self.measurement.start();
                 outputs.extend(inputs.iter_mut().map(&mut routine));
                 let end = self.measurement.end(start);
-                let bench_end = InstrumentHooks::current_timestamp();
+                let bench_end = if InstrumentHooks::instance().is_instrumented() {
+                    InstrumentHooks::current_timestamp()
+                } else {
+                    0
+                };
                 InstrumentHooks::instance().add_benchmark_timestamps(bench_start, bench_end);
 
                 self.value = self.measurement.add(&self.value, &end);
@@ -522,7 +562,11 @@ impl<'a, 'b, A: AsyncExecutor, M: Measurement> AsyncBencher<'a, 'b, A, M> {
         let AsyncBencher { b, runner } = self;
         runner.block_on(async {
             b.iterated = true;
-            let bench_start = InstrumentHooks::current_timestamp();
+            let bench_start = if InstrumentHooks::instance().is_instrumented() {
+                InstrumentHooks::current_timestamp()
+            } else {
+                0
+            };
             let time_start = Instant::now();
             let start = b.measurement.start();
             for _ in 0..b.iters {
@@ -530,7 +574,11 @@ impl<'a, 'b, A: AsyncExecutor, M: Measurement> AsyncBencher<'a, 'b, A, M> {
             }
             b.value = b.measurement.end(start);
             b.elapsed_time = time_start.elapsed();
-            let bench_end = InstrumentHooks::current_timestamp();
+            let bench_end = if InstrumentHooks::instance().is_instrumented() {
+                InstrumentHooks::current_timestamp()
+            } else {
+                0
+            };
             InstrumentHooks::instance().add_benchmark_timestamps(bench_start, bench_end);
         });
     }
