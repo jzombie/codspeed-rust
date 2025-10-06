@@ -10,6 +10,7 @@ mod linux_impl {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
 
+    // Tracks whether the dynamic library enabled instrumentation so hot paths can cheap-check it.
     static INSTRUMENTATION_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub struct InstrumentHooks(*mut ffi::InstrumentHooks);
@@ -25,8 +26,8 @@ mod linux_impl {
                 None
             } else {
                 // Query the C library once at initialization to know whether
-                // instrumentation is actually enabled. Cache that in an
-                // AtomicBool to avoid per-iteration FFI calls.
+                // instrumentation is actually enabled and cache the flag to
+                // avoid paying for repeated FFI calls in tight loops.
                 let enabled = unsafe { ffi::instrument_hooks_is_instrumented(ptr) };
                 INSTRUMENTATION_ENABLED.store(enabled, Ordering::Relaxed);
                 Some(InstrumentHooks(ptr))
@@ -106,6 +107,7 @@ mod linux_impl {
             // This prevents expensive FFI calls inside hot per-iteration loops when the
             // hooks aren't enabled and greatly reduces walltime variance caused by
             // unnecessary instrumentation overhead.
+            // Skip the syscall/FFI markers entirely when no instrumentation is active.
             if !self.is_instrumented() {
                 return;
             }

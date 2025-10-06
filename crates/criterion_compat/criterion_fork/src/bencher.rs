@@ -96,6 +96,7 @@ impl<'a, M: Measurement> Bencher<'a, M> {
     {
         self.iterated = true;
 
+        // Use a cheap sentinel when instrumentation is disabled to avoid unnecessary FFI work.
         let bench_start = if InstrumentHooks::instance().is_instrumented() {
             InstrumentHooks::current_timestamp()
         } else {
@@ -108,6 +109,7 @@ impl<'a, M: Measurement> Bencher<'a, M> {
         }
         self.value = self.measurement.end(start);
         self.elapsed_time = time_start.elapsed();
+        // Matching sentinel ensures marker emission is skipped in add_benchmark_timestamps.
         let bench_end = if InstrumentHooks::instance().is_instrumented() {
             InstrumentHooks::current_timestamp()
         } else {
@@ -299,6 +301,8 @@ impl<'a, M: Measurement> Bencher<'a, M> {
             for _ in 0..self.iters {
                 let input = black_box(setup());
 
+                // Inside hot loops we want to avoid redundant timestamp work when not instrumented.
+                // Mirror the sentinel logic for the mutable-reference batching path.
                 let bench_start = if InstrumentHooks::instance().is_instrumented() {
                     InstrumentHooks::current_timestamp()
                 } else {
@@ -327,6 +331,8 @@ impl<'a, M: Measurement> Bencher<'a, M> {
                 let inputs = black_box((0..batch_size).map(|_| setup()).collect::<Vec<_>>());
                 let mut outputs = Vec::with_capacity(batch_size as usize);
 
+                // Batched runs also respect the sentinel to keep the fast path light.
+                // Batched mutable runs share the same fast exit when instrumentation is absent.
                 let bench_start = if InstrumentHooks::instance().is_instrumented() {
                     InstrumentHooks::current_timestamp()
                 } else {
@@ -562,6 +568,7 @@ impl<'a, 'b, A: AsyncExecutor, M: Measurement> AsyncBencher<'a, 'b, A, M> {
         let AsyncBencher { b, runner } = self;
         runner.block_on(async {
             b.iterated = true;
+            // Async benches also keep the zero sentinel when instrumentation is unavailable.
             let bench_start = if InstrumentHooks::instance().is_instrumented() {
                 InstrumentHooks::current_timestamp()
             } else {

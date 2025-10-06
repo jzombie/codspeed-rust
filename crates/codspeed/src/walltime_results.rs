@@ -125,6 +125,7 @@ impl WalltimeBenchmark {
             samples.push((0, 1));
         }
 
+        // Trim the dedicated warmup rounds so comparisons focus on steady-state measurements.
         let warmup_limit = WARMUP_RUNS as usize;
         let sample_len = samples.len();
         let warmup_to_skip = if sample_len > warmup_limit + 1 {
@@ -139,6 +140,7 @@ impl WalltimeBenchmark {
             .map(|&(_, iter)| iter)
             .sum::<u128>() as u64;
 
+        // Everything after the warmup window feeds into the reported statistics.
         let measured_samples = &samples[warmup_to_skip..];
 
         let total_time = measured_samples
@@ -152,6 +154,7 @@ impl WalltimeBenchmark {
             .map(|&(time_ns, iter)| time_ns as f64 / iter as f64)
             .collect();
 
+        // Guarantee downstream stats code always sees at least one sample.
         let per_iteration_ns = if per_iteration_ns.is_empty() {
             vec![0.0]
         } else {
