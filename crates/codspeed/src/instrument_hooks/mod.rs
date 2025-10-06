@@ -141,6 +141,9 @@ mod linux_impl {
 
 #[cfg(not(target_os = "linux"))]
 mod other_impl {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
     pub struct InstrumentHooks;
 
     impl InstrumentHooks {
@@ -172,7 +175,8 @@ mod other_impl {
         pub fn add_benchmark_timestamps(&self, _start: u64, _end: u64) {}
 
         pub fn current_timestamp() -> u64 {
-            0
+            static START: OnceLock<Instant> = OnceLock::new();
+            START.get_or_init(Instant::now).elapsed().as_nanos() as u64
         }
     }
 }

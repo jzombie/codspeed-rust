@@ -7,6 +7,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use statrs::statistics::{Data, Distribution, Max, Min, OrderStatistics};
 
+use crate::codspeed::WARMUP_RUNS;
+
 const IQR_OUTLIER_FACTOR: f64 = 1.5;
 const STDEV_OUTLIER_FACTOR: f64 = 3.0;
 
@@ -113,15 +115,50 @@ impl WalltimeBenchmark {
         times_per_round_ns: Vec<u128>,
         max_time_ns: Option<u128>,
     ) -> Self {
-        let total_time = times_per_round_ns.iter().sum::<u128>() as f64 / 1_000_000_000.0;
-        let time_per_iteration_per_round_ns: Vec<_> = times_per_round_ns
+        let mut samples: Vec<(u128, u128)> = times_per_round_ns
             .into_iter()
-            .zip(&iters_per_round)
-            .map(|(time_per_round, iter_per_round)| time_per_round / iter_per_round)
-            .map(|t| t as f64)
-            .collect::<Vec<f64>>();
+            .zip(iters_per_round)
+            .filter(|&(_time, iter)| iter > 0)
+            .collect();
 
-        let mut data = Data::new(time_per_iteration_per_round_ns);
+        if samples.is_empty() {
+            samples.push((0, 1));
+        }
+
+        let warmup_limit = WARMUP_RUNS as usize;
+        let sample_len = samples.len();
+        let warmup_to_skip = if sample_len > warmup_limit + 1 {
+            warmup_limit
+        } else {
+            0
+        };
+
+        let warmup_iters = samples
+            .iter()
+            .take(warmup_to_skip)
+            .map(|&(_, iter)| iter)
+            .sum::<u128>() as u64;
+
+        let measured_samples = &samples[warmup_to_skip..];
+
+        let total_time = measured_samples
+            .iter()
+            .map(|&(time_ns, _)| time_ns as f64)
+            .sum::<f64>()
+            / 1_000_000_000.0;
+
+        let per_iteration_ns: Vec<f64> = measured_samples
+            .iter()
+            .map(|&(time_ns, iter)| time_ns as f64 / iter as f64)
+            .collect();
+
+        let per_iteration_ns = if per_iteration_ns.is_empty() {
+            vec![0.0]
+        } else {
+            per_iteration_ns
+        };
+
+        let mut data = Data::new(per_iteration_ns.clone());
         let rounds = data.len() as u64;
 
         let mean_ns = data.mean().unwrap();
@@ -139,28 +176,35 @@ impl WalltimeBenchmark {
         let q3_ns = data.quantile(0.75);
 
         let iqr_ns = q3_ns - q1_ns;
-        let iqr_outlier_rounds = data
+        let iqr_outlier_rounds = per_iteration_ns
             .iter()
             .filter(|&&t| {
                 t < q1_ns - IQR_OUTLIER_FACTOR * iqr_ns || t > q3_ns + IQR_OUTLIER_FACTOR * iqr_ns
             })
             .count() as u64;
 
-        let stdev_outlier_rounds = data
-            .iter()
-            .filter(|&&t| {
-                t < mean_ns - STDEV_OUTLIER_FACTOR * stdev_ns
-                    || t > mean_ns + STDEV_OUTLIER_FACTOR * stdev_ns
-            })
-            .count() as u64;
+        let stdev_outlier_rounds = if stdev_ns == 0.0 {
+            0
+        } else {
+            per_iteration_ns
+                .iter()
+                .filter(|&&t| {
+                    t < mean_ns - STDEV_OUTLIER_FACTOR * stdev_ns
+                        || t > mean_ns + STDEV_OUTLIER_FACTOR * stdev_ns
+                })
+                .count() as u64
+        };
 
         let min_ns = data.min();
         let max_ns = data.max();
 
         // TODO(COD-1056): We currently only support single iteration count per round
-        let iter_per_round =
-            (iters_per_round.iter().sum::<u128>() / iters_per_round.len() as u128) as u64;
-        let warmup_iters = 0; // FIXME: add warmup detection
+        let total_iters: u128 = measured_samples.iter().map(|&(_, iter)| iter).sum();
+        let iter_per_round = if rounds > 0 {
+            (total_iters / rounds as u128) as u64
+        } else {
+            0
+        };
 
         let stats = BenchmarkStats {
             min_ns,
@@ -322,5 +366,26 @@ mod tests {
             benchmark.stats.total_time,
             42. * total_rounds / 1_000_000_000.0
         );
+    }
+
+    #[test]
+    fn test_warmup_rounds_trimmed() {
+        let iters_per_round = vec![1u128; 7];
+        let times_per_round = vec![200u128, 200, 200, 200, 200, 100, 100];
+
+        let benchmark = WalltimeBenchmark::from_runtime_data(
+            NAME.to_string(),
+            URI.to_string(),
+            iters_per_round,
+            times_per_round,
+            None,
+        );
+
+        assert_eq!(benchmark.stats.warmup_iters, 5);
+        assert_eq!(benchmark.stats.rounds, 2);
+        assert!((benchmark.stats.mean_ns - 100.0).abs() < f64::EPSILON);
+        assert!((benchmark.stats.total_time - 200f64 / 1_000_000_000.0).abs() < f64::EPSILON);
+        assert_eq!(benchmark.stats.min_ns, 100.0);
+        assert_eq!(benchmark.stats.max_ns, 100.0);
     }
 }
