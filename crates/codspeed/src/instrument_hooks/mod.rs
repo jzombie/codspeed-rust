@@ -7,7 +7,11 @@ mod linux_impl {
 
     use super::ffi;
     use std::ffi::CString;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
+
+    // Tracks whether the dynamic library enabled instrumentation so hot paths can cheap-check it.
+    static INSTRUMENTATION_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub struct InstrumentHooks(*mut ffi::InstrumentHooks);
 
@@ -21,6 +25,11 @@ mod linux_impl {
             if ptr.is_null() {
                 None
             } else {
+                // Query the C library once at initialization to know whether
+                // instrumentation is actually enabled and cache the flag to
+                // avoid paying for repeated FFI calls in tight loops.
+                let enabled = unsafe { ffi::instrument_hooks_is_instrumented(ptr) };
+                INSTRUMENTATION_ENABLED.store(enabled, Ordering::Relaxed);
                 Some(InstrumentHooks(ptr))
             }
         }
@@ -41,7 +50,7 @@ mod linux_impl {
 
         #[inline(always)]
         pub fn is_instrumented(&self) -> bool {
-            unsafe { ffi::instrument_hooks_is_instrumented(self.0) }
+            INSTRUMENTATION_ENABLED.load(Ordering::Relaxed)
         }
 
         #[inline(always)]
@@ -94,6 +103,15 @@ mod linux_impl {
 
         #[inline(always)]
         pub fn add_benchmark_timestamps(&self, start: u64, end: u64) {
+            // Avoid doing any FFI/syscall work if the instrumentation is not active.
+            // This prevents expensive FFI calls inside hot per-iteration loops when the
+            // hooks aren't enabled and greatly reduces walltime variance caused by
+            // unnecessary instrumentation overhead.
+            // Skip the syscall/FFI markers entirely when no instrumentation is active.
+            if !self.is_instrumented() {
+                return;
+            }
+
             let pid = std::process::id();
 
             unsafe {
@@ -133,6 +151,9 @@ mod linux_impl {
 
 #[cfg(not(target_os = "linux"))]
 mod other_impl {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
     pub struct InstrumentHooks;
 
     impl InstrumentHooks {
@@ -164,7 +185,8 @@ mod other_impl {
         pub fn add_benchmark_timestamps(&self, _start: u64, _end: u64) {}
 
         pub fn current_timestamp() -> u64 {
-            0
+            static START: OnceLock<Instant> = OnceLock::new();
+            START.get_or_init(Instant::now).elapsed().as_nanos() as u64
         }
     }
 }
