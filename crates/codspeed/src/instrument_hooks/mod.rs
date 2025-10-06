@@ -94,6 +94,14 @@ mod linux_impl {
 
         #[inline(always)]
         pub fn add_benchmark_timestamps(&self, start: u64, end: u64) {
+            // Avoid doing any FFI/syscall work if the instrumentation is not active.
+            // This prevents expensive FFI calls inside hot per-iteration loops when the
+            // hooks aren't enabled and greatly reduces walltime variance caused by
+            // unnecessary instrumentation overhead.
+            if !self.is_instrumented() {
+                return;
+            }
+
             let pid = std::process::id();
 
             unsafe {
