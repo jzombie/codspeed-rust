@@ -28,8 +28,6 @@ struct BenchmarkStats {
     q1_ns: f64,
     median_ns: f64,
     q3_ns: f64,
-    median_ci_lower_ns: f64,
-    median_ci_upper_ns: f64,
 
     rounds: u64,
     total_time: f64,
@@ -177,45 +175,7 @@ impl WalltimeBenchmark {
         let median_ns = data.median();
         let q3_ns = data.quantile(0.75);
 
-        // Compute a simple bootstrap 95% CI for the median. We use a deterministic
-        // LCG-based sampler so tests are reproducible and we don't add a RNG
-        // dependency.
-        fn bootstrap_median_ci(samples: &[f64], reps: usize, alpha: f64) -> (f64, f64) {
-            if samples.is_empty() {
-                return (0.0, 0.0);
-            }
-            let n = samples.len();
-            let mut medians: Vec<f64> = Vec::with_capacity(reps);
-            for r in 0..reps {
-                // simple 64-bit LCG
-                let mut seed = (r as u64).wrapping_mul(6364136223846793005).wrapping_add(1);
-                let mut resampled: Vec<f64> = Vec::with_capacity(n);
-                for _ in 0..n {
-                    seed = seed
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(1442695040888963407);
-                    let idx = (seed >> 32) as usize % n;
-                    resampled.push(samples[idx]);
-                }
-                resampled.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let median = if n % 2 == 1 {
-                    resampled[n / 2]
-                } else {
-                    (resampled[n / 2 - 1] + resampled[n / 2]) / 2.0
-                };
-                medians.push(median);
-            }
-            medians.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            let lower_idx = ((reps as f64) * (alpha / 2.0)).floor() as usize;
-            let upper_idx = ((reps as f64) * (1.0 - (alpha / 2.0))).ceil() as usize;
-            let lower = medians[std::cmp::min(lower_idx, reps - 1)];
-            let upper = medians[std::cmp::min(upper_idx.saturating_sub(1), reps - 1)];
-            (lower, upper)
-        }
-
         let iqr_ns = q3_ns - q1_ns;
-        let (median_ci_lower_ns, median_ci_upper_ns) =
-            bootstrap_median_ci(&per_iteration_ns, 1000, 0.05);
         let iqr_outlier_rounds = per_iteration_ns
             .iter()
             .filter(|&&t| {
@@ -253,8 +213,6 @@ impl WalltimeBenchmark {
             stdev_ns,
             q1_ns,
             median_ns,
-            median_ci_lower_ns,
-            median_ci_upper_ns,
             q3_ns,
             rounds,
             total_time,
